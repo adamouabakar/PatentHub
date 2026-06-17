@@ -223,6 +223,47 @@ def test_build_index_resume_after_fetch_failure(
     assert stored_ids == {"10000001", "10000002", "10000003", "10000004"}
 
 
+@patch("ingest.build_index._append_batch")
+@patch("ingest.build_index.embed_texts_offline")
+@patch("ingest.build_index._embedded_ids")
+def test_build_index_respects_limit_on_checkpoint_resume(
+    mock_embedded_ids: MagicMock,
+    mock_embed: MagicMock,
+    mock_append: MagicMock,
+    settings: Settings,
+) -> None:
+    """--limit applies to checkpointed records on resume, not only new fetches."""
+    from ingest.fetch import parse_patent
+
+    stored_ids: set[str] = set()
+    mock_embed.side_effect = lambda texts, model, batch_size=32: [
+        [0.1, 0.2, 0.3] for _ in texts
+    ]
+    mock_embedded_ids.return_value = set()
+
+    def track_append(db, table_name, table_dir, records, texts, vectors) -> None:
+        stored_ids.update(r.patent_id for r in records)
+
+    mock_append.side_effect = track_append
+
+    records = [
+        parse_patent({**SAMPLE, "patent_id": f"id{i}"}) for i in range(1, 6)
+    ]
+    cp = Checkpoint(
+        page=2,
+        fetched_ids=[r.patent_id for r in records],
+        fetched_count=5,
+        records=[r.model_dump(mode="json") for r in records],
+    )
+    cp.save(settings.checkpoint_path)
+
+    with patch("ingest.build_index.fetch_patents", return_value=iter([])):
+        build_index(settings=settings, output_path=settings.lance_path, limit=3)
+
+    assert len(stored_ids) == 3
+    assert stored_ids == {"id1", "id2", "id3"}
+
+
 def test_build_index_raises_when_checkpoint_complete(settings: Settings) -> None:
     cp = Checkpoint(complete=True, fetched_ids=["x"], records=[{"patent_id": "x"}])
     cp.save(settings.checkpoint_path)

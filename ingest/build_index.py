@@ -11,7 +11,7 @@ from pathlib import Path
 import lancedb
 import pyarrow as pa
 
-from config import get_settings
+from config import Settings, get_settings
 from ingest.embed import build_embed_text, embed_texts_offline
 from ingest.fetch import Checkpoint, fetch_patents
 from search.models import PatentRecord
@@ -118,10 +118,22 @@ def build_index(
     db = lancedb.connect(str(db_dir))
     embedded = _embedded_ids(db, table_name, table_dir)
 
+    def _at_limit() -> bool:
+        return limit is not None and len(embedded) >= limit
+
+    def _fetch_headroom() -> int | None:
+        if limit is None:
+            return None
+        return max(0, limit - len(embedded))
+
     def flush(records: list[PatentRecord]) -> None:
         nonlocal embedded
         if not records:
             return
+        if limit is not None:
+            records = records[: max(0, limit - len(embedded))]
+            if not records:
+                return
         texts = [
             build_embed_text(r, max_tokens=settings.max_embed_tokens) for r in records
         ]
@@ -134,24 +146,32 @@ def build_index(
 
     pending: list[PatentRecord] = []
 
-    def queue(record: PatentRecord) -> None:
+    def queue(record: PatentRecord) -> bool:
+        """Queue a record for embedding. Returns False when limit is reached."""
         if record.patent_id in embedded:
-            return
+            return True
+        if _at_limit():
+            return False
         pending.append(record)
         if len(pending) >= batch_size:
             flush(pending)
             pending.clear()
+        return not _at_limit()
 
     # Embed checkpointed records from prior failed runs (e.g. page 1 before crash).
     for record in _checkpoint_records(settings.checkpoint_path):
-        queue(record)
+        if not queue(record):
+            break
     flush(pending)
     pending.clear()
 
     new_count = 0
-    for record in fetch_patents(settings, limit=limit):
-        queue(record)
-        new_count += 1
+    fetch_headroom = _fetch_headroom()
+    if fetch_headroom is None or fetch_headroom > 0:
+        for record in fetch_patents(settings, limit=fetch_headroom):
+            if not queue(record):
+                break
+            new_count += 1
     flush(pending)
 
     if not embedded:

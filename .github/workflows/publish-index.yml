@@ -43,6 +43,9 @@ jobs:
             python -m ingest.build_index --reset-checkpoint
           fi
 
+      - name: Verify embedding parity (ST vs fastembed)
+        run: pytest tests/test_embed_parity.py -v -m slow
+
       - name: Create release archive
         run: |
           chmod +x scripts/publish_index.sh

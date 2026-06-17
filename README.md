@@ -47,7 +47,7 @@ pip install -e ".[ingest]"
 ### Construire l'index (offline)
 
 ```bash
-pip install sentence-transformers
+pip install -e ".[ingest]"
 export PATENTSVIEW_API_KEY=your_key   # optional
 python -m ingest.build_index --limit 100 --reset-checkpoint
 ```

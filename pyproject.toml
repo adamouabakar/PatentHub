@@ -27,6 +27,9 @@ dev = ["pytest>=8,<9", "pytest-mock>=3,<4"]
 testpaths = ["tests"]
 pythonpath = ["."]
 addopts = "-v --tb=short"
+markers = [
+    "slow: downloads ML models; run in ingest/parity CI job",
+]
 
 [tool.setuptools.packages.find]
 where = ["."]

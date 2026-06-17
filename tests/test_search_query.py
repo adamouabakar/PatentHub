@@ -59,6 +59,22 @@ def test_ensure_index_uses_existing_path(settings: Settings) -> None:
     assert ensure_index(settings) == settings.lance_path
 
 
+def test_safe_extract_zip_rejects_path_traversal(tmp_path: Path) -> None:
+    import io
+    import zipfile
+
+    from search.query import IndexDownloadError, _safe_extract_zip
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr("../evil.txt", "bad")
+    buf.seek(0)
+
+    with zipfile.ZipFile(buf) as zf:
+        with pytest.raises(IndexDownloadError, match="Unsafe path"):
+            _safe_extract_zip(zf, tmp_path)
+
+
 @patch("search.query._download_release")
 def test_ensure_index_download_failure_raises_index_download_error(
     mock_download: MagicMock, settings: Settings

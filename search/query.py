@@ -26,17 +26,34 @@ class IndexDownloadError(Exception):
     """Failed to download the LanceDB index from a release URL."""
 
 
+def _is_safe_member_path(dest: Path, member_name: str) -> Path:
+    """Resolve archive member path and ensure it stays under dest."""
+    dest = dest.resolve()
+    member_path = (dest / member_name).resolve()
+    if not str(member_path).startswith(str(dest)):
+        raise IndexDownloadError(f"Unsafe path in archive: {member_name}")
+    return member_path
+
+
 def _safe_extract_tar(tf: tarfile.TarFile, dest: Path) -> None:
     """Extract tar archive with path-traversal protection."""
     dest = dest.resolve()
     for member in tf.getmembers():
-        member_path = (dest / member.name).resolve()
-        if not str(member_path).startswith(str(dest)):
-            raise IndexDownloadError(f"Unsafe path in archive: {member.name}")
+        _is_safe_member_path(dest, member.name)
     if hasattr(tarfile, "data_filter"):
         tf.extractall(dest, filter="data")
     else:
         tf.extractall(dest)
+
+
+def _safe_extract_zip(zf: zipfile.ZipFile, dest: Path) -> None:
+    """Extract zip archive with path-traversal protection."""
+    dest = dest.resolve()
+    for member in zf.namelist():
+        if member.endswith("/"):
+            continue
+        _is_safe_member_path(dest, member)
+    zf.extractall(dest)
 
 
 def _download_release(url: str, dest: Path) -> None:
@@ -52,7 +69,7 @@ def _download_release(url: str, dest: Path) -> None:
                     tmp.write(response.content)
                     tmp_path = Path(tmp.name)
                 with zipfile.ZipFile(tmp_path) as zf:
-                    zf.extractall(dest.parent)
+                    _safe_extract_zip(zf, dest.parent)
                 tmp_path.unlink(missing_ok=True)
             else:
                 with tempfile.NamedTemporaryFile(suffix=".tar.gz", delete=False) as tmp:
