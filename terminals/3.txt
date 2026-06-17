@@ -1,0 +1,115 @@
+---
+pid: 7968
+cwd: "C:\~\Projects\PatentHub"
+command: "cd \"C:\\~\\Projects\\PatentHub\" && python -m pytest tests/ -v --ignore=tests/test_embed_parity.py"
+started_at: 2026-06-17T05:19:05.551Z
+running_for_ms: 154998   
+---
+============================= test session starts =============================
+platform win32 -- Python 3.14.5, pytest-9.1.0, pluggy-1.6.0 -- C:\Python314\python.exe
+cachedir: .pytest_cache
+rootdir: C:\~\Projects\PatentHub
+configfile: pyproject.toml
+plugins: anyio-4.14.0, mock-3.15.1
+collecting ... collected 34 items
+
+tests/test_app_validation.py::test_empty_query_returns_french_message PASSED [  2%]
+tests/test_app_validation.py::test_valid_query_returns_none PASSED       [  5%]
+tests/test_app_validation.py::test_no_click_returns_none_even_if_empty PASSED [  8%]
+tests/test_embed_text.py::test_truncate_to_tokens_limits_words PASSED    [ 11%]
+tests/test_embed_text.py::test_truncate_empty_returns_empty PASSED       [ 14%]
+tests/test_embed_text.py::test_build_embed_text_concatenates_fields PASSED [ 17%]
+tests/test_embed_text.py::test_build_embed_text_truncates_long_content PASSED [ 20%]
+tests/test_embed_text.py::test_patent_record_embed_text PASSED           [ 23%]
+tests/test_fetch_checkpoint.py::test_parse_patent_maps_fields PASSED     [ 26%]
+tests/test_fetch_checkpoint.py::test_parse_patent_empty_assignee_is_none PASSED [ 29%]
+tests/test_fetch_checkpoint.py::test_checkpoint_save_and_load PASSED     [ 32%]
+tests/test_fetch_checkpoint.py::test_checkpoint_load_missing_returns_default PASSED [ 35%]
+tests/test_fetch_checkpoint.py::test_checkpoint_load_corrupt_json_raises_clear_error PASSED [ 38%]
+tests/test_fetch_checkpoint.py::test_request_with_backoff_retries_on_transient_status[429] PASSED [ 41%]
+tests/test_fetch_checkpoint.py::test_request_with_backoff_retries_on_transient_status[500] PASSED [ 44%]
+tests/test_fetch_checkpoint.py::test_request_with_backoff_retries_on_transient_status[502] PASSED [ 47%]
+tests/test_fetch_checkpoint.py::test_request_with_backoff_retries_on_transient_status[503] PASSED [ 50%]
+tests/test_fetch_checkpoint.py::test_request_with_backoff_retries_on_transient_status[504] PASSED [ 52%]
+tests/test_fetch_checkpoint.py::test_request_with_backoff_does_not_retry_401 PASSED [ 55%]
+tests/test_fetch_checkpoint.py::test_fetch_page_builds_payload PASSED    [ 58%]
+tests/test_fetch_checkpoint.py::test_fetch_patents_paginates PASSED      [ 61%]
+tests/test_fetch_checkpoint.py::test_fetch_patents_skips_missing_abstract FAILED [ 64%]
+tests/test_fetch_checkpoint.py::test_try_parse_patent_skips_invalid_record PASSED [ 67%]
+tests/test_ingest_resume.py::test_ingest_resume_after_simulated_failure PASSED [ 70%]
+tests/test_ingest_resume.py::test_ingest_resume_with_limit PASSED        [ 73%]
+tests/test_ingest_resume.py::test_mid_page_resume_skips_duplicate_ids PASSED [ 76%]
+tests/test_ingest_resume.py::test_build_index_resume_after_fetch_failure FAILED [ 79%]
+tests/test_ingest_resume.py::test_build_index_raises_when_checkpoint_complete PASSED [ 82%]
+tests/test_search_query.py::test_ensure_index_raises_when_missing PASSED [ 85%]
+tests/test_search_query.py::test_ensure_index_uses_existing_path PASSED  [ 88%]
+tests/test_search_query.py::test_ensure_index_download_failure_raises_index_download_error PASSED [ 91%]
+tests/test_search_query.py::test_get_fastembed_model_is_lru_cached FAILED [ 94%]
+tests/test_search_query.py::test_embed_query_returns_vector PASSED       [ 97%]
+tests/test_search_query.py::test_search_patents_returns_records PASSED   [100%]
+
+================================== FAILURES ===================================
+__________________ test_fetch_patents_skips_missing_abstract __________________
+tests\test_fetch_checkpoint.py:209: in test_fetch_patents_skips_missing_abstract
+    records = list(fetch_patents(settings, client=client))
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+ingest\fetch.py:269: in fetch_patents
+    raw_patents, total = fetch_page(http, settings, page)
+                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+ingest\fetch.py:214: in fetch_page
+    data = _request_with_backoff(
+ingest\fetch.py:88: in _request_with_backoff
+    response = client.post(url, json=payload, headers=headers, timeout=60.0)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+C:\Python314\Lib\unittest\mock.py:1175: in __call__
+    self._increment_mock_call(*args, **kwargs)
+C:\Python314\Lib\unittest\mock.py:1206: in _increment_mock_call
+    self.mock_calls.append(_Call(('', args, kwargs)))
+E   MemoryError
+_________________ test_build_index_resume_after_fetch_failure _________________
+C:\Users\HP\AppData\Roaming\Python\Python314\site-packages\lancedb\table.py:1995: in to_lance
+    import lance
+E   ModuleNotFoundError: No module named 'lance'
+
+During handling of the above exception, another exception occurred:
+tests\test_ingest_resume.py:204: in test_build_index_resume_after_fetch_failure
+    ids = set(table.to_pandas()["patent_id"].tolist())
+              ^^^^^^^^^^^^^^^^^
+C:\Users\HP\AppData\Roaming\Python\Python314\site-packages\lancedb\table.py:2216: in to_pandas
+    return self.to_lance().to_pandas(blob_mode=blob_mode, **kwargs)
+           ^^^^^^^^^^^^^^^
+C:\Users\HP\AppData\Roaming\Python\Python314\site-packages\lancedb\table.py:1997: in to_lance
+    raise ImportError(
+E   ImportError: The lance library is required to use this function. Please install with `pip install pylance`.
+---------------------------- Captured stderr call -----------------------------
+[2026-06-17T05:21:52Z WARN  lance::dataset::write::insert] No existing dataset at C:\Users\HP\AppData\Local\Temp\pytest-of-HP\pytest-2\test_build_index_resume_after_0\patents.lance, it will be created
+------------------------------ Captured log call ------------------------------
+WARNING  ingest.fetch:fetch.py:108 Request failed (attempt 1/5): Simulated network failure — retry in 1.0s
+WARNING  ingest.fetch:fetch.py:108 Request failed (attempt 2/5): Simulated network failure — retry in 2.0s
+WARNING  ingest.fetch:fetch.py:108 Request failed (attempt 3/5): Simulated network failure — retry in 4.0s
+WARNING  ingest.fetch:fetch.py:108 Request failed (attempt 4/5): Simulated network failure — retry in 8.0s
+___________________ test_get_fastembed_model_is_lru_cached ____________________
+tests\test_search_query.py:78: in test_get_fastembed_model_is_lru_cached
+    with patch("fastembed.TextEmbedding", return_value=mock_model) as mock_cls:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+C:\Python314\Lib\unittest\mock.py:1494: in __enter__
+    self.target = self.getter()
+                  ^^^^^^^^^^^^^
+C:\Python314\Lib\pkgutil.py:458: in resolve_name
+    mod = importlib.import_module(modname)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+C:\Python314\Lib\importlib\__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+<frozen importlib._bootstrap>:1406: in _gcd_import
+    ???
+<frozen importlib._bootstrap>:1371: in _find_and_load
+    ???
+<frozen importlib._bootstrap>:1335: in _find_and_load_unlocked
+    ???
+E   ModuleNotFoundError: No module named 'fastembed'
+=========================== short test summary info ===========================
+FAILED tests/test_fetch_checkpoint.py::test_fetch_patents_skips_missing_abstract - MemoryError
+FAILED tests/test_ingest_resume.py::test_build_index_resume_after_fetch_failure - ImportError: The lance library is required to use this function. Please install with `pip install pylance`.
+FAILED tests/test_search_query.py::test_get_fastembed_model_is_lru_cached - ModuleNotFoundError: No module named 'fastembed'
+================== 3 failed, 31 passed in 164.13s (0:02:44) ===================

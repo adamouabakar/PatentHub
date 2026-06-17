@@ -1,0 +1,22 @@
+---
+pid: 20464
+cwd: "C:\~\Projects\PatentHub"
+command: "cd \"C:\\~\\Projects\\PatentHub\" && python -m pip install pytest httpx pydantic pandas pytest-mock -q && pytest tests/ -v"
+started_at: 2026-06-17T05:09:55.461Z
+running_for_ms: 180003   
+---
+  WARNING: The script pygmentize.exe is installed in 'C:\Users\HP\AppData\Roaming\Python\Python314\Scripts' which is not on PATH.
+  Consider adding this directory to PATH or, if you prefer to suppress this warning, use --no-warn-script-location.
+  WARNING: The scripts f2py.exe and numpy-config.exe are installed in 'C:\Users\HP\AppData\Roaming\Python\Python314\Scripts' which is not on PATH.
+  Consider adding this directory to PATH or, if you prefer to suppress this warning, use --no-warn-script-location.
+  WARNING: The script idna.exe is installed in 'C:\Users\HP\AppData\Roaming\Python\Python314\Scripts' which is not on PATH.
+  Consider adding this directory to PATH or, if you prefer to suppress this warning, use --no-warn-script-location.
+  WARNING: The scripts py.test.exe and pytest.exe are installed in 'C:\Users\HP\AppData\Roaming\Python\Python314\Scripts' which is not on PATH.
+  Consider adding this directory to PATH or, if you prefer to suppress this warning, use --no-warn-script-location.
+  WARNING: The script httpx.exe is installed in 'C:\Users\HP\AppData\Roaming\Python\Python314\Scripts' which is not on PATH.
+  Consider adding this directory to PATH or, if you prefer to suppress this warning, use --no-warn-script-location.
+
+[notice] A new release of pip is available: 26.1.1 -> 26.1.2
+[notice] To update, run: python.exe -m pip install --upgrade pip
+pytest: The term 'pytest' is not recognized as a name of a cmdlet, function, script file, or executable program.
+Check the spelling of the name, or if a path was included, verify that the path is correct and try again.
