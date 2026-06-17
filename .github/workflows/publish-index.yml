@@ -1,0 +1,60 @@
+name: Publish Index
+
+on:
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: "Max patents to fetch (empty = full ingest)"
+        required: false
+        default: "500"
+      tag:
+        description: "GitHub Release tag"
+        required: false
+        default: "index-latest"
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[ingest,dev]"
+          pip install sentence-transformers
+
+      - name: Build index
+        env:
+          PATENTSVIEW_API_KEY: ${{ secrets.PATENTSVIEW_API_KEY }}
+          PATENTHUB_LANCE_PATH: ./data/patents.lance
+        run: |
+          LIMIT="${{ github.event.inputs.limit }}"
+          if [[ -n "$LIMIT" ]]; then
+            python -m ingest.build_index --limit "$LIMIT" --reset-checkpoint
+          else
+            python -m ingest.build_index --reset-checkpoint
+          fi
+
+      - name: Create release archive
+        run: |
+          chmod +x scripts/publish_index.sh
+          mkdir -p release-assets
+          tar -czf release-assets/patents-index.tar.gz -C data patents.lance
+
+      - name: Upload to GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          TAG="${{ github.event.inputs.tag }}"
+          gh release view "$TAG" 2>/dev/null || gh release create "$TAG" --title "Patent Index $TAG" --notes "Automated LanceDB index"
+          gh release upload "$TAG" release-assets/patents-index.tar.gz --clobber
