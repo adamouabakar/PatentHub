@@ -264,6 +264,68 @@ def test_build_index_respects_limit_on_checkpoint_resume(
     assert stored_ids == {"id1", "id2", "id3"}
 
 
+@patch("ingest.build_index._append_batch")
+@patch("ingest.build_index.embed_texts_offline")
+@patch("ingest.build_index._embedded_ids")
+def test_build_index_fetches_remaining_after_checkpoint_below_limit(
+    mock_embedded_ids: MagicMock,
+    mock_embed: MagicMock,
+    mock_append: MagicMock,
+    settings: Settings,
+) -> None:
+    """When checkpoint count < --limit, fetch_patents must continue from API."""
+    from ingest.fetch import parse_patent
+
+    stored_ids: set[str] = set()
+    mock_embed.side_effect = lambda texts, model, batch_size=32: [
+        [0.1, 0.2, 0.3] for _ in texts
+    ]
+    mock_embedded_ids.return_value = set()
+
+    def track_append(db, table_name, table_dir, records, texts, vectors) -> None:
+        stored_ids.update(r.patent_id for r in records)
+
+    mock_append.side_effect = track_append
+
+    checkpoint_records = [
+        parse_patent({**SAMPLE, "patent_id": f"id{i}"}) for i in range(1, 6)
+    ]
+    cp = Checkpoint(
+        page=2,
+        fetched_ids=[r.patent_id for r in checkpoint_records],
+        fetched_count=5,
+        records=[r.model_dump(mode="json") for r in checkpoint_records],
+    )
+    cp.save(settings.checkpoint_path)
+
+    pages = {
+        2: {
+            "patents": [
+                {**SAMPLE, "patent_id": f"id{i}"} for i in range(6, 12)
+            ],
+            "total_patent_count": 20,
+        },
+        3: {"patents": [], "total_patent_count": 20},
+    }
+    client = _make_client(pages)
+
+    with patch(
+        "ingest.build_index.fetch_patents",
+        side_effect=lambda settings, limit=None, **_: fetch_patents(
+            settings, limit=limit, client=client
+        ),
+    ):
+        build_index(
+            settings=settings,
+            output_path=settings.lance_path,
+            limit=10,
+            batch_size=5,
+        )
+
+    assert len(stored_ids) == 10
+    assert stored_ids == {f"id{i}" for i in range(1, 11)}
+
+
 def test_build_index_raises_when_checkpoint_complete(settings: Settings) -> None:
     cp = Checkpoint(complete=True, fetched_ids=["x"], records=[{"patent_id": "x"}])
     cp.save(settings.checkpoint_path)

@@ -121,11 +121,6 @@ def build_index(
     def _at_limit() -> bool:
         return limit is not None and len(embedded) >= limit
 
-    def _fetch_headroom() -> int | None:
-        if limit is None:
-            return None
-        return max(0, limit - len(embedded))
-
     def flush(records: list[PatentRecord]) -> None:
         nonlocal embedded
         if not records:
@@ -166,9 +161,9 @@ def build_index(
     pending.clear()
 
     new_count = 0
-    fetch_headroom = _fetch_headroom()
-    if fetch_headroom is None or fetch_headroom > 0:
-        for record in fetch_patents(settings, limit=fetch_headroom):
+    if not _at_limit():
+        # fetch_patents uses limit as absolute cap on checkpoint.fetched_count
+        for record in fetch_patents(settings, limit=limit):
             if not queue(record):
                 break
             new_count += 1
