@@ -1,4 +1,4 @@
-# PatentHub v0 — runtime
+# PatentHub v0 — Streamlit Cloud runtime (no sentence-transformers)
 streamlit>=1.32,<2
 lancedb>=0.6,<1
 pyarrow>=18,<22
@@ -8,9 +8,8 @@ fastembed>=0.3,<1
 numpy>=1.26,<3
 pandas>=2,<3
 
-# Offline ingest only (not required on Streamlit Cloud)
-sentence-transformers>=3,<4
-
 # Dev / CI
 pytest>=8,<9
 pytest-mock>=3,<4
+
+# Offline ingest only: pip install -e ".[ingest]"

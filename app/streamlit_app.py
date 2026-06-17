@@ -2,15 +2,17 @@
 
 from __future__ import annotations
 
+import httpx
 import streamlit as st
 
+from app.validation import EMPTY_QUERY_MESSAGE, INDEX_DOWNLOAD_MESSAGE, validate_search_input
 from config import get_settings
-from search.query import load_index, search_patents
+from search.query import IndexDownloadError, _get_fastembed_model, load_index, search_patents
 
 st.set_page_config(
     page_title="PatentHub — Recherche Brevets IA",
     page_icon="🔍",
-    layout="centered",
+    layout="wide",
     initial_sidebar_state="collapsed",
 )
 
@@ -40,6 +42,12 @@ def _cached_load_index():
     return load_index(get_settings())
 
 
+@st.cache_resource
+def _cached_embed_model():
+    settings = get_settings()
+    return _get_fastembed_model(settings.fastembed_model)
+
+
 def _google_patents_url(patent_id: str) -> str:
     return f"https://patents.google.com/patent/US{patent_id}"
 
@@ -60,15 +68,20 @@ def main() -> None:
     settings = get_settings()
     search_clicked = st.button("Rechercher", type="primary", use_container_width=True)
 
-    if search_clicked and query.strip():
+    validation_msg = validate_search_input(query, search_clicked)
+    if validation_msg:
+        st.warning(validation_msg)
+    elif search_clicked and query.strip():
         with st.spinner("Recherche en cours…"):
             try:
                 table = _cached_load_index()
+                embed_model = _cached_embed_model()
                 results = search_patents(
                     query.strip(),
                     top_k=settings.top_k,
                     table=table,
                     settings=settings,
+                    embed_model=embed_model,
                 )
             except FileNotFoundError as exc:
                 st.error(
@@ -76,6 +89,9 @@ def main() -> None:
                     "construisez l'index localement.\n\n"
                     f"{exc}"
                 )
+                return
+            except (IndexDownloadError, httpx.HTTPError):
+                st.error(INDEX_DOWNLOAD_MESSAGE)
                 return
             except Exception as exc:
                 st.error(f"Erreur de recherche : {exc}")

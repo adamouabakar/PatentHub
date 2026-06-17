@@ -13,11 +13,16 @@ import pyarrow as pa
 
 from config import get_settings
 from ingest.embed import build_embed_text, embed_texts_offline
-from ingest.fetch import fetch_patents
+from ingest.fetch import Checkpoint, fetch_patents
+from search.models import PatentRecord
 
 logger = logging.getLogger(__name__)
 
 TABLE_NAME = "patents"
+
+
+class CheckpointCompleteError(RuntimeError):
+    """Raised when ingest checkpoint is complete and rebuild was not requested."""
 
 
 def _schema(vector_dim: int) -> pa.Schema:
@@ -36,55 +41,128 @@ def _schema(vector_dim: int) -> pa.Schema:
     )
 
 
+def _record_row(record: PatentRecord, text: str, vector: list[float]) -> dict:
+    return {
+        "patent_id": record.patent_id,
+        "title": record.title,
+        "abstract": record.abstract,
+        "claim_snippet": record.claim_snippet,
+        "cpc_codes": record.cpc_codes,
+        "filing_date": record.filing_date_str(),
+        "assignee": record.assignee or "",
+        "text": text,
+        "vector": vector,
+    }
+
+
+def _embedded_ids(db: lancedb.DBConnection, table_name: str, table_dir: Path) -> set[str]:
+    if not table_dir.exists():
+        return set()
+    table = db.open_table(table_name)
+    return set(table.to_pandas()["patent_id"].tolist())
+
+
+def _append_batch(
+    db: lancedb.DBConnection,
+    table_name: str,
+    table_dir: Path,
+    records: list[PatentRecord],
+    texts: list[str],
+    vectors: list[list[float]],
+) -> None:
+    rows = [_record_row(records[i], texts[i], vectors[i]) for i in range(len(records))]
+    vector_dim = len(vectors[0])
+    if table_dir.exists():
+        table = db.open_table(table_name)
+        table.add(rows)
+    else:
+        db.create_table(
+            table_name, data=rows, schema=_schema(vector_dim), mode="overwrite"
+        )
+
+
+def _checkpoint_records(checkpoint_path: Path) -> list[PatentRecord]:
+    checkpoint = Checkpoint.load(checkpoint_path)
+    return [PatentRecord.model_validate(raw) for raw in checkpoint.records]
+
+
 def build_index(
     *,
     limit: int | None = None,
     output_path: Path | None = None,
     batch_size: int = 64,
     reset_checkpoint: bool = False,
+    settings: Settings | None = None,
 ) -> Path:
-    """Fetch patents, embed offline, write LanceDB table."""
-    settings = get_settings()
+    """Fetch patents incrementally, embed offline, append to LanceDB (resume-safe)."""
+    settings = settings or get_settings()
     output_path = output_path or settings.lance_path
 
-    if reset_checkpoint and settings.checkpoint_path.exists():
-        settings.checkpoint_path.unlink()
+    if reset_checkpoint:
+        if settings.checkpoint_path.exists():
+            settings.checkpoint_path.unlink()
 
-    records = list(fetch_patents(settings, limit=limit))
-    if not records:
-        raise RuntimeError("No patents fetched — check API or checkpoint state.")
-
-    texts = [
-        build_embed_text(r, max_tokens=settings.max_embed_tokens) for r in records
-    ]
-    logger.info("Embedding %s patents with %s", len(texts), settings.embed_model)
-    vectors = embed_texts_offline(texts, settings.embed_model, batch_size=batch_size)
-    vector_dim = len(vectors[0])
+    checkpoint = Checkpoint.load(settings.checkpoint_path)
+    if checkpoint.complete and not reset_checkpoint:
+        raise CheckpointCompleteError(
+            "Checkpoint marked complete; pass --reset-checkpoint to rebuild index."
+        )
 
     db_dir = output_path.parent
     table_name = output_path.stem
     table_dir = db_dir / f"{table_name}.lance"
-    if table_dir.exists():
+    if reset_checkpoint and table_dir.exists():
         shutil.rmtree(table_dir)
 
     db_dir.mkdir(parents=True, exist_ok=True)
     db = lancedb.connect(str(db_dir))
-    data = [
-        {
-            "patent_id": r.patent_id,
-            "title": r.title,
-            "abstract": r.abstract,
-            "claim_snippet": r.claim_snippet,
-            "cpc_codes": r.cpc_codes,
-            "filing_date": r.filing_date,
-            "assignee": r.assignee,
-            "text": texts[i],
-            "vector": vectors[i],
-        }
-        for i, r in enumerate(records)
-    ]
-    db.create_table(table_name, data=data, schema=_schema(vector_dim), mode="overwrite")
-    logger.info("Index written to %s (%s records)", table_dir, len(records))
+    embedded = _embedded_ids(db, table_name, table_dir)
+
+    def flush(records: list[PatentRecord]) -> None:
+        nonlocal embedded
+        if not records:
+            return
+        texts = [
+            build_embed_text(r, max_tokens=settings.max_embed_tokens) for r in records
+        ]
+        logger.info("Embedding batch of %s patents", len(texts))
+        vectors = embed_texts_offline(
+            texts, settings.embed_model, batch_size=min(batch_size, len(texts))
+        )
+        _append_batch(db, table_name, table_dir, records, texts, vectors)
+        embedded.update(r.patent_id for r in records)
+
+    pending: list[PatentRecord] = []
+
+    def queue(record: PatentRecord) -> None:
+        if record.patent_id in embedded:
+            return
+        pending.append(record)
+        if len(pending) >= batch_size:
+            flush(pending)
+            pending.clear()
+
+    # Embed checkpointed records from prior failed runs (e.g. page 1 before crash).
+    for record in _checkpoint_records(settings.checkpoint_path):
+        queue(record)
+    flush(pending)
+    pending.clear()
+
+    new_count = 0
+    for record in fetch_patents(settings, limit=limit):
+        queue(record)
+        new_count += 1
+    flush(pending)
+
+    if not embedded:
+        raise RuntimeError("No patents fetched — check API or checkpoint state.")
+
+    logger.info(
+        "Index at %s contains %s records (%s newly fetched this run)",
+        table_dir,
+        len(embedded),
+        new_count,
+    )
     return table_dir
 
 
@@ -113,6 +191,9 @@ def main(argv: list[str] | None = None) -> int:
             batch_size=args.batch_size,
             reset_checkpoint=args.reset_checkpoint,
         )
+    except CheckpointCompleteError as exc:
+        logger.error("%s", exc)
+        return 1
     except Exception as exc:
         logger.error("Build failed: %s", exc)
         return 1

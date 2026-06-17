@@ -9,7 +9,7 @@
 
 - Requête en langage naturel (FR/EN) → top-10 brevets G06N
 - Index vectoriel LanceDB (~5 s sur mobile)
-- Embeddings Hugging Face open-source (fastembed ONNX en runtime)
+- Embeddings multilingues HF (`paraphrase-multilingual-MiniLM-L12-v2`, fastembed ONNX en runtime)
 - Zéro budget : Streamlit Cloud + GitHub Releases
 
 ## Architecture
@@ -30,6 +30,9 @@ cd PatentHub
 python -m venv .venv
 source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
+
+# Offline ingest only (not Streamlit Cloud):
+pip install -e ".[ingest]"
 ```
 
 ### Variables d'environnement

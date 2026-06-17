@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import functools
 import logging
 import tarfile
 import tempfile
@@ -21,27 +22,47 @@ logger = logging.getLogger(__name__)
 TABLE_NAME = "patents"
 
 
+class IndexDownloadError(Exception):
+    """Failed to download the LanceDB index from a release URL."""
+
+
+def _safe_extract_tar(tf: tarfile.TarFile, dest: Path) -> None:
+    """Extract tar archive with path-traversal protection."""
+    dest = dest.resolve()
+    for member in tf.getmembers():
+        member_path = (dest / member.name).resolve()
+        if not str(member_path).startswith(str(dest)):
+            raise IndexDownloadError(f"Unsafe path in archive: {member.name}")
+    if hasattr(tarfile, "data_filter"):
+        tf.extractall(dest, filter="data")
+    else:
+        tf.extractall(dest)
+
+
 def _download_release(url: str, dest: Path) -> None:
     """Download and extract index archive from GitHub Release URL."""
     dest.parent.mkdir(parents=True, exist_ok=True)
-    with httpx.Client(follow_redirects=True, timeout=120.0) as client:
-        response = client.get(url)
-        response.raise_for_status()
-        suffix = Path(urlparse(url).path).suffix.lower()
-        if suffix in {".zip"}:
-            with tempfile.NamedTemporaryFile(suffix=".zip", delete=False) as tmp:
-                tmp.write(response.content)
-                tmp_path = Path(tmp.name)
-            with zipfile.ZipFile(tmp_path) as zf:
-                zf.extractall(dest.parent)
-            tmp_path.unlink(missing_ok=True)
-        else:
-            with tempfile.NamedTemporaryFile(suffix=".tar.gz", delete=False) as tmp:
-                tmp.write(response.content)
-                tmp_path = Path(tmp.name)
-            with tarfile.open(tmp_path, "r:gz") as tf:
-                tf.extractall(dest.parent)
-            tmp_path.unlink(missing_ok=True)
+    try:
+        with httpx.Client(follow_redirects=True, timeout=120.0) as client:
+            response = client.get(url)
+            response.raise_for_status()
+            suffix = Path(urlparse(url).path).suffix.lower()
+            if suffix in {".zip"}:
+                with tempfile.NamedTemporaryFile(suffix=".zip", delete=False) as tmp:
+                    tmp.write(response.content)
+                    tmp_path = Path(tmp.name)
+                with zipfile.ZipFile(tmp_path) as zf:
+                    zf.extractall(dest.parent)
+                tmp_path.unlink(missing_ok=True)
+            else:
+                with tempfile.NamedTemporaryFile(suffix=".tar.gz", delete=False) as tmp:
+                    tmp.write(response.content)
+                    tmp_path = Path(tmp.name)
+                with tarfile.open(tmp_path, "r:gz") as tf:
+                    _safe_extract_tar(tf, dest.parent)
+                tmp_path.unlink(missing_ok=True)
+    except httpx.HTTPError as exc:
+        raise IndexDownloadError("Impossible de charger l'index") from exc
 
 
 def ensure_index(settings: Settings | None = None) -> Path:
@@ -54,10 +75,14 @@ def ensure_index(settings: Settings | None = None) -> Path:
 
     if settings.release_url:
         logger.info("Downloading index from %s", settings.release_url)
-        _download_release(settings.release_url, lance_path)
+        try:
+            _download_release(settings.release_url, lance_path)
+        except IndexDownloadError:
+            raise
+        except httpx.HTTPError as exc:
+            raise IndexDownloadError("Impossible de charger l'index") from exc
         if lance_path.exists():
             return lance_path
-        # Archive may extract to patents.lance under data/
         candidate = lance_path.parent / "patents.lance"
         if candidate.exists():
             return candidate
@@ -82,17 +107,23 @@ def load_index(settings: Settings | None = None) -> Any:
     return db.open_table(table_name)
 
 
+@functools.lru_cache(maxsize=4)
 def _get_fastembed_model(model_name: str) -> Any:
     from fastembed import TextEmbedding
 
     return TextEmbedding(model_name=model_name)
 
 
-def embed_query(text: str, settings: Settings | None = None) -> list[float]:
-    """Embed a search query using fastembed ONNX (~80MB)."""
+def embed_query(
+    text: str,
+    settings: Settings | None = None,
+    *,
+    model: Any | None = None,
+) -> list[float]:
+    """Embed a search query using fastembed ONNX (~80MB), cached per model name."""
     settings = settings or get_settings()
-    model = _get_fastembed_model(settings.fastembed_model)
-    embeddings = list(model.embed([text]))
+    embedder = model or _get_fastembed_model(settings.fastembed_model)
+    embeddings = list(embedder.embed([text]))
     return embeddings[0].tolist()
 
 
@@ -103,10 +134,10 @@ def _row_to_record(row: dict[str, Any], score: float | None = None) -> dict[str,
         abstract=str(row.get("abstract") or ""),
         claim_snippet=str(row.get("claim_snippet") or ""),
         cpc_codes=list(row.get("cpc_codes") or []),
-        filing_date=str(row.get("filing_date") or ""),
-        assignee=str(row.get("assignee") or ""),
+        filing_date=row.get("filing_date") or None,
+        assignee=row.get("assignee") or None,
     )
-    result = record.model_dump()
+    result = record.model_dump(mode="json")
     if score is not None:
         result["score"] = score
     return result
@@ -118,18 +149,15 @@ def search_patents(
     top_k: int | None = None,
     table: Any | None = None,
     settings: Settings | None = None,
+    embed_model: Any | None = None,
 ) -> list[dict[str, Any]]:
     """Run vector search and return top-k PatentRecord dicts with scores."""
     settings = settings or get_settings()
     top_k = top_k or settings.top_k
     table = table or load_index(settings)
 
-    vector = embed_query(query, settings)
-    results = (
-        table.search(vector)
-        .limit(top_k)
-        .to_pandas()
-    )
+    vector = embed_query(query, settings, model=embed_model)
+    results = table.search(vector).limit(top_k).to_pandas()
 
     output: list[dict[str, Any]] = []
     for _, row in results.iterrows():

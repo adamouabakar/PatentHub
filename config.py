@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import functools
 import os
 from dataclasses import dataclass
 from pathlib import Path
+
+DEFAULT_EMBED_MODEL = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
 
 
 @dataclass(frozen=True)
@@ -37,11 +40,9 @@ class Settings:
                     "PATENTHUB_CHECKPOINT_PATH", "./data/ingest_checkpoint.json"
                 )
             ),
-            embed_model=os.environ.get(
-                "PATENTHUB_EMBED_MODEL", "BAAI/bge-small-en-v1.5"
-            ),
+            embed_model=os.environ.get("PATENTHUB_EMBED_MODEL", DEFAULT_EMBED_MODEL),
             fastembed_model=os.environ.get(
-                "PATENTHUB_FASTEMBED_MODEL", "BAAI/bge-small-en-v1.5"
+                "PATENTHUB_FASTEMBED_MODEL", DEFAULT_EMBED_MODEL
             ),
             max_embed_tokens=int(os.environ.get("PATENTHUB_MAX_EMBED_TOKENS", "512")),
             patentsview_api_url=os.environ.get(
@@ -53,6 +54,7 @@ class Settings:
         )
 
 
+@functools.lru_cache(maxsize=1)
 def get_settings() -> Settings:
-    """Return cached settings instance."""
+    """Return cached settings instance (refreshed when env changes in new process)."""
     return Settings.from_env()

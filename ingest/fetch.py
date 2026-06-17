@@ -5,16 +5,19 @@ from __future__ import annotations
 import json
 import logging
 import time
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Iterator
 
 import httpx
+from pydantic import ValidationError
 
 from config import Settings, get_settings
 from search.models import PatentRecord
 
 logger = logging.getLogger(__name__)
+
+RETRYABLE_STATUS = {429, 500, 502, 503, 504}
 
 PATENT_FIELDS = [
     "patent_id",
@@ -27,13 +30,20 @@ PATENT_FIELDS = [
 ]
 
 
+class CheckpointError(ValueError):
+    """Raised when a checkpoint file cannot be loaded."""
+
+
 @dataclass
 class Checkpoint:
     """Persisted pagination state for resumable ingest."""
 
     page: int = 1
+    last_page: int = 0
     fetched_count: int = 0
     complete: bool = False
+    fetched_ids: list[str] = field(default_factory=list)
+    records: list[dict[str, Any]] = field(default_factory=list)
 
     def save(self, path: Path) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -43,11 +53,19 @@ class Checkpoint:
     def load(cls, path: Path) -> "Checkpoint":
         if not path.exists():
             return cls()
-        data = json.loads(path.read_text(encoding="utf-8"))
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            raise CheckpointError(
+                f"Corrupt checkpoint at {path}: invalid JSON ({exc})"
+            ) from exc
         return cls(
-            page=int(data.get("page", 1)),
+            page=int(data.get("page", data.get("last_page", 0)) or 1),
+            last_page=int(data.get("last_page", 0)),
             fetched_count=int(data.get("fetched_count", 0)),
             complete=bool(data.get("complete", False)),
+            fetched_ids=list(data.get("fetched_ids", [])),
+            records=list(data.get("records", [])),
         )
 
 
@@ -63,12 +81,12 @@ def _request_with_backoff(
     max_retries: int = 5,
     base_delay: float = 1.0,
 ) -> dict[str, Any]:
-    """POST with exponential backoff on transient errors."""
+    """POST with exponential backoff on transient errors (429, selected 5xx)."""
     last_error: Exception | None = None
     for attempt in range(max_retries):
         try:
             response = client.post(url, json=payload, headers=headers, timeout=60.0)
-            if response.status_code in {429, 500, 502, 503, 504}:
+            if response.status_code in RETRYABLE_STATUS:
                 raise httpx.HTTPStatusError(
                     f"Retryable status {response.status_code}",
                     request=response.request,
@@ -76,19 +94,25 @@ def _request_with_backoff(
                 )
             response.raise_for_status()
             return response.json()
-        except (httpx.HTTPStatusError, httpx.TransportError) as exc:
+        except httpx.HTTPStatusError as exc:
+            status = exc.response.status_code
+            if status not in RETRYABLE_STATUS:
+                raise
             last_error = exc
-            if attempt == max_retries - 1:
-                break
-            delay = base_delay * (2**attempt)
-            logger.warning(
-                "Request failed (attempt %s/%s): %s — retry in %.1fs",
-                attempt + 1,
-                max_retries,
-                exc,
-                delay,
-            )
-            time.sleep(delay)
+        except httpx.TransportError as exc:
+            last_error = exc
+
+        if attempt == max_retries - 1:
+            break
+        delay = base_delay * (2**attempt)
+        logger.warning(
+            "Request failed (attempt %s/%s): %s — retry in %.1fs",
+            attempt + 1,
+            max_retries,
+            last_error,
+            delay,
+        )
+        time.sleep(delay)
     assert last_error is not None
     raise last_error
 
@@ -108,11 +132,11 @@ def _first_claim_text(claims: Any) -> str:
     return str(claims)
 
 
-def _extract_assignee(assignees: Any) -> str:
+def _extract_assignee(assignees: Any) -> str | None:
     if not assignees:
-        return ""
+        return None
+    names: list[str] = []
     if isinstance(assignees, list):
-        names: list[str] = []
         for item in assignees:
             if isinstance(item, dict):
                 org = item.get("assignee_organization") or item.get("assignee_name")
@@ -120,14 +144,14 @@ def _extract_assignee(assignees: Any) -> str:
                     names.append(str(org))
             elif item:
                 names.append(str(item))
-        return "; ".join(names)
-    if isinstance(assignees, dict):
-        return str(
-            assignees.get("assignee_organization")
-            or assignees.get("assignee_name")
-            or ""
-        )
-    return str(assignees)
+    elif isinstance(assignees, dict):
+        org = assignees.get("assignee_organization") or assignees.get("assignee_name")
+        if org:
+            names.append(str(org))
+    else:
+        names.append(str(assignees))
+    joined = "; ".join(names)
+    return joined or None
 
 
 def _extract_cpc_codes(cpc_current: Any) -> list[str]:
@@ -157,9 +181,19 @@ def parse_patent(raw: dict[str, Any]) -> PatentRecord:
         abstract=str(raw.get("patent_abstract") or ""),
         claim_snippet=_first_claim_text(raw.get("claims")),
         cpc_codes=_extract_cpc_codes(raw.get("cpc_current")),
-        filing_date=str(raw.get("patent_date") or ""),
+        filing_date=raw.get("patent_date") or None,
         assignee=_extract_assignee(raw.get("assignees")),
     )
+
+
+def try_parse_patent(raw: dict[str, Any]) -> PatentRecord | None:
+    """Parse a patent record, skipping malformed API payloads."""
+    try:
+        return parse_patent(raw)
+    except ValidationError as exc:
+        patent_id = raw.get("patent_id", "unknown")
+        logger.warning("Skipping invalid patent %s: %s", patent_id, exc)
+        return None
 
 
 def fetch_page(
@@ -185,6 +219,16 @@ def fetch_page(
     return patents, total
 
 
+def _persist_record(checkpoint: Checkpoint, record: PatentRecord, path: Path) -> None:
+    """Append record to checkpoint and save incrementally (per-record resume)."""
+    if record.patent_id in checkpoint.fetched_ids:
+        return
+    checkpoint.fetched_ids.append(record.patent_id)
+    checkpoint.records.append(record.model_dump(mode="json"))
+    checkpoint.fetched_count = len(checkpoint.fetched_ids)
+    checkpoint.save(path)
+
+
 def fetch_patents(
     settings: Settings | None = None,
     *,
@@ -196,11 +240,13 @@ def fetch_patents(
     """
     Yield patents from PatentsView with checkpoint resume.
 
-    Checkpoint is saved after each successful page. On failure, re-run to resume.
+    Checkpoint stores fetched_ids and serialized records per patent. On failure,
+    re-run to resume from the current page; already-fetched IDs are skipped.
     """
     settings = settings or get_settings()
     checkpoint_path = checkpoint_path or settings.checkpoint_path
     checkpoint = Checkpoint.load(checkpoint_path)
+    seen_ids = set(checkpoint.fetched_ids)
 
     if checkpoint.complete:
         logger.info("Ingest already marked complete at checkpoint %s", checkpoint_path)
@@ -232,13 +278,24 @@ def fetch_patents(
                     checkpoint.complete = True
                     checkpoint.save(checkpoint_path)
                     return
-                record = parse_patent(raw)
-                if record.patent_id:
-                    fetched += 1
-                    yield record
+
+                record = try_parse_patent(raw)
+                if not record or not record.patent_id:
+                    continue
+                if not record.abstract.strip():
+                    logger.debug("Skipping patent %s: missing abstract", record.patent_id)
+                    continue
+                if record.patent_id in seen_ids:
+                    continue
+
+                _persist_record(checkpoint, record, checkpoint_path)
+                seen_ids.add(record.patent_id)
+                fetched += 1
+                yield record
 
             page += 1
             checkpoint.page = page
+            checkpoint.last_page = page - 1
             checkpoint.fetched_count = fetched
             checkpoint.save(checkpoint_path)
             if on_page:
