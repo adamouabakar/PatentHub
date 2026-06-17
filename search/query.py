@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import functools
 import logging
+import shutil
 import tarfile
 import tempfile
 import zipfile
@@ -17,13 +18,135 @@ import lancedb
 from config import Settings, get_settings
 from search.models import PatentRecord
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("patenthub.search")
 
 TABLE_NAME = "patents"
+OFFLINE_INDEX_MARKER = ".patenthub_offline_index"
 
 
 class IndexDownloadError(Exception):
     """Failed to download the LanceDB index from a release URL."""
+
+
+class IndexLoadError(Exception):
+    """Failed to open the LanceDB table (missing or corrupt index)."""
+
+
+def _is_lance_table_dir(path: Path) -> bool:
+    """True if path looks like a Lance dataset directory."""
+    return path.is_dir() and (
+        (path / "_versions").is_dir() or (path / "_transactions").is_dir()
+    )
+
+
+def _resolved_table_dir(
+    lance_path: Path, default_table: str = TABLE_NAME
+) -> tuple[Path, str] | None:
+    """Return (table_dir, table_name) when filesystem layout is recognized."""
+    lance_path = lance_path.resolve()
+
+    if _is_lance_table_dir(lance_path):
+        return lance_path, lance_path.stem
+
+    nested = lance_path / f"{default_table}.lance"
+    if _is_lance_table_dir(nested):
+        return nested, default_table
+
+    nested_stem = lance_path / f"{lance_path.stem}.lance"
+    if _is_lance_table_dir(nested_stem):
+        return nested_stem, lance_path.stem
+
+    return None
+
+
+def lance_structure_ok(lance_path: Path, default_table: str = TABLE_NAME) -> bool:
+    """True when ``lance_path`` contains a recognizable Lance table directory."""
+    return _resolved_table_dir(lance_path, default_table) is not None
+
+
+def resolve_lance_db(
+    lance_path: Path,
+    default_table: str = TABLE_NAME,
+    *,
+    strict: bool = False,
+) -> tuple[Path, str]:
+    """
+    Resolve (db_directory, table_name) for lancedb.connect().
+
+    Supports:
+    - Flat layout from ingest: ``data/patents.lance`` (table dir) → db ``data/``
+    - Nested layout: ``data/patents.lance/patents.lance/`` → db ``data/patents.lance/``
+
+    When ``strict=True`` (used by ``load_index``), raises ``IndexLoadError`` if the
+    layout cannot be confirmed via ``_versions`` / ``_transactions`` markers.
+    """
+    resolved = _resolved_table_dir(lance_path, default_table)
+    if resolved is not None:
+        table_dir, table_name = resolved
+        return table_dir.parent, table_name
+
+    if strict:
+        raise IndexLoadError(
+            f"No valid LanceDB table structure at {lance_path.resolve()}"
+        )
+
+    lance_path = lance_path.resolve()
+    if lance_path.is_dir() and lance_path.suffix == ".lance":
+        return lance_path.parent, lance_path.stem
+    return lance_path.parent, default_table
+
+
+def _offline_index_message(lance_path: Path) -> str:
+    """Return a warning when the index was built with offline pseudo-embeddings."""
+    marker = lance_path.resolve() / OFFLINE_INDEX_MARKER
+    if marker.exists():
+        return (
+            "Index de test hors ligne — les résultats ne sont pas sémantiques. "
+            "Rebuild without --offline for real embeddings."
+        )
+    return ""
+
+
+def _invalid_index_message(path: Path, release_url: str) -> str:
+    base = (
+        f"Structure d'index invalide à {path}. "
+        "Exécutez: python scripts/create_test_index.py --force"
+    )
+    if release_url:
+        base += (
+            " — ou supprimez ce répertoire pour permettre le téléchargement "
+            "depuis PATENTHUB_RELEASE_URL à la première recherche."
+        )
+    return base
+
+
+def index_path_status(settings: Settings | None = None) -> tuple[str, str]:
+    """
+    Non-blocking index probe (filesystem only, no LanceDB connect).
+
+    Returns (status, message) where status is ``ok``, ``missing``, ``invalid``,
+    or ``remote`` (download deferred until search).
+
+    A shallow probe only: a directory passing ``_is_lance_table_dir`` may still
+    fail at ``lancedb.connect()`` / ``open_table()`` (corrupt metadata, schema
+    mismatch). Full validity is confirmed on the first search.
+    """
+    settings = settings or get_settings()
+    path = settings.lance_path
+
+    if path.exists():
+        if lance_structure_ok(path):
+            offline_msg = _offline_index_message(path)
+            return "ok", offline_msg
+        return "invalid", _invalid_index_message(path, settings.release_url)
+
+    if settings.release_url:
+        return "remote", "Index distant — téléchargement à la première recherche."
+
+    return (
+        "missing",
+        "Index local absent. Exécutez: python scripts/create_test_index.py",
+    )
 
 
 def _is_safe_member_path(dest: Path, member_name: str) -> Path:
@@ -88,7 +211,16 @@ def ensure_index(settings: Settings | None = None) -> Path:
     lance_path = settings.lance_path
 
     if lance_path.exists():
-        return lance_path
+        if lance_structure_ok(lance_path):
+            return lance_path
+        if settings.release_url:
+            logger.warning(
+                "Removing invalid local index at %s to download from release",
+                lance_path,
+            )
+            shutil.rmtree(lance_path)
+        else:
+            raise IndexLoadError(_invalid_index_message(lance_path, ""))
 
     if settings.release_url:
         logger.info("Downloading index from %s", settings.release_url)
@@ -114,21 +246,27 @@ def load_index(settings: Settings | None = None) -> Any:
     """Load LanceDB table (use with @st.cache_resource in Streamlit)."""
     settings = settings or get_settings()
     path = ensure_index(settings)
-    if path.is_dir() and path.suffix == ".lance":
-        db_dir = path.parent
-        table_name = path.stem
-    else:
-        db_dir = path.parent
-        table_name = path.stem if path.suffix == ".lance" else TABLE_NAME
-    db = lancedb.connect(str(db_dir))
-    return db.open_table(table_name)
+    db_dir, table_name = resolve_lance_db(path, strict=True)
+    logger.info("Opening LanceDB table=%s db_dir=%s (from %s)", table_name, db_dir, path)
+    try:
+        db = lancedb.connect(str(db_dir))
+        return db.open_table(table_name)
+    except Exception as exc:
+        raise IndexLoadError(
+            f"Cannot open LanceDB table '{table_name}' in {db_dir}: {exc}"
+        ) from exc
 
 
 @functools.lru_cache(maxsize=4)
-def _get_fastembed_model(model_name: str) -> Any:
+def get_fastembed_model(model_name: str) -> Any:
+    """Load fastembed ONNX model, cached per model name."""
     from fastembed import TextEmbedding
 
     return TextEmbedding(model_name=model_name)
+
+
+# Backwards-compatible alias for internal callers and tests.
+_get_fastembed_model = get_fastembed_model
 
 
 def embed_query(
@@ -139,7 +277,7 @@ def embed_query(
 ) -> list[float]:
     """Embed a search query using fastembed ONNX (~80MB), cached per model name."""
     settings = settings or get_settings()
-    embedder = model or _get_fastembed_model(settings.fastembed_model)
+    embedder = model or get_fastembed_model(settings.fastembed_model)
     embeddings = list(embedder.embed([text]))
     return embeddings[0].tolist()
 

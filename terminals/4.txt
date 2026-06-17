@@ -1,0 +1,67 @@
+---
+pid: 1580
+cwd: "C:\~\Projects\PatentHub"
+command: "cd \"C:\\~\\Projects\\PatentHub\" && pip install fastembed -q && python scripts/create_test_index.py --output \"./data/test_patents.lance\" --force 2>&1"
+started_at: 2026-06-17T20:24:50.287Z
+running_for_ms: 389999   
+---
+WARNING: Cache entry deserialization failed, entry ignored
+WARNING: Cache entry deserialization failed, entry ignored
+WARNING: Cache entry deserialization failed, entry ignored
+WARNING: Cache entry deserialization failed, entry ignored
+WARNING: Cache entry deserialization failed, entry ignored
+WARNING: Cache entry deserialization failed, entry ignored
+WARNING: Cache entry deserialization failed, entry ignored
+WARNING: Cache entry deserialization failed, entry ignored
+WARNING: Cache entry deserialization failed, entry ignored
+WARNING: Cache entry deserialization failed, entry ignored
+WARNING: Cache entry deserialization failed, entry ignored
+WARNING: Cache entry deserialization failed, entry ignored
+WARNING: Cache entry deserialization failed, entry ignored
+WARNING: Cache entry deserialization failed, entry ignored
+WARNING: Cache entry deserialization failed, entry ignored
+WARNING: Cache entry deserialization failed, entry ignored
+WARNING: Cache entry deserialization failed, entry ignored
+WARNING: Cache entry deserialization failed, entry ignored
+WARNING: Cache entry deserialization failed, entry ignored
+  WARNING: The script onnxruntime_test.exe is installed in 'C:\Users\HP\AppData\Roaming\Python\Python314\Scripts' which is not on PATH.
+  Consider adding this directory to PATH or, if you prefer to suppress this warning, use --no-warn-script-location.
+  WARNING: The script markdown-it.exe is installed in 'C:\Users\HP\AppData\Roaming\Python\Python314\Scripts' which is not on PATH.
+  Consider adding this directory to PATH or, if you prefer to suppress this warning, use --no-warn-script-location.
+  WARNING: The script typer.exe is installed in 'C:\Users\HP\AppData\Roaming\Python\Python314\Scripts' which is not on PATH.
+  Consider adding this directory to PATH or, if you prefer to suppress this warning, use --no-warn-script-location.
+  WARNING: The scripts hf.exe, huggingface-cli.exe and tiny-agents.exe are installed in 'C:\Users\HP\AppData\Roaming\Python\Python314\Scripts' which is not on PATH.
+  Consider adding this directory to PATH or, if you prefer to suppress this warning, use --no-warn-script-location.
+INFO Embedding 5 dummy patents with sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2
+C:\~\Projects\PatentHub\search\query.py:202: UserWarning: The model sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2 now uses mean pooling instead of CLS embedding. In order to preserve the previous behaviour, consider either pinning fastembed version to 0.5.1 or using `add_custom_model` functionality.
+  return TextEmbedding(model_name=model_name)
+INFO HTTP Request: GET https://huggingface.co/api/agent-harnesses "HTTP/1.1 200 OK"
+INFO HTTP Request: GET https://huggingface.co/api/models/qdrant/paraphrase-multilingual-MiniLM-L12-v2-onnx-Q "HTTP/1.1 307 Temporary Redirect"
+INFO HTTP Request: GET https://huggingface.co/api/models/Qdrant/paraphrase-multilingual-MiniLM-L12-v2-onnx-Q "HTTP/1.1 200 OK"
+INFO HTTP Request: GET https://huggingface.co/api/models/qdrant/paraphrase-multilingual-MiniLM-L12-v2-onnx-Q/tree/faf4aa4225822f3bc6376869cb1164e8e3feedd0?recursive=false&expand=false "HTTP/1.1 307 Temporary Redirect"
+INFO HTTP Request: GET https://huggingface.co/api/models/Qdrant/paraphrase-multilingual-MiniLM-L12-v2-onnx-Q/tree/faf4aa4225822f3bc6376869cb1164e8e3feedd0?recursive=false&expand=false "HTTP/1.1 200 OK"
+INFO HTTP Request: GET https://huggingface.co/api/models/qdrant/paraphrase-multilingual-MiniLM-L12-v2-onnx-Q/revision/main "HTTP/1.1 307 Temporary Redirect"
+INFO HTTP Request: GET https://huggingface.co/api/models/Qdrant/paraphrase-multilingual-MiniLM-L12-v2-onnx-Q/revision/main "HTTP/1.1 200 OK"
+
+Fetching 5 files:   0%|          | 0/5 [00:00<?, ?it/s]INFO HTTP Request: HEAD https://huggingface.co/qdrant/paraphrase-multilingual-MiniLM-L12-v2-onnx-Q/resolve/faf4aa4225822f3bc6376869cb1164e8e3feedd0/config.json "HTTP/1.1 307 Temporary Redirect"
+INFO HTTP Request: HEAD https://huggingface.co/qdrant/paraphrase-multilingual-MiniLM-L12-v2-onnx-Q/resolve/faf4aa4225822f3bc6376869cb1164e8e3feedd0/tokenizer_config.json "HTTP/1.1 307 Temporary Redirect"
+INFO HTTP Request: HEAD https://huggingface.co/qdrant/paraphrase-multilingual-MiniLM-L12-v2-onnx-Q/resolve/faf4aa4225822f3bc6376869cb1164e8e3feedd0/model_optimized.onnx "HTTP/1.1 307 Temporary Redirect"
+INFO HTTP Request: HEAD https://huggingface.co/qdrant/paraphrase-multilingual-MiniLM-L12-v2-onnx-Q/resolve/faf4aa4225822f3bc6376869cb1164e8e3feedd0/special_tokens_map.json "HTTP/1.1 307 Temporary Redirect"
+INFO HTTP Request: HEAD https://huggingface.co/qdrant/paraphrase-multilingual-MiniLM-L12-v2-onnx-Q/resolve/faf4aa4225822f3bc6376869cb1164e8e3feedd0/tokenizer.json "HTTP/1.1 307 Temporary Redirect"
+INFO HTTP Request: HEAD https://huggingface.co/Qdrant/paraphrase-multilingual-MiniLM-L12-v2-onnx-Q/resolve/faf4aa4225822f3bc6376869cb1164e8e3feedd0/config.json "HTTP/1.1 307 Temporary Redirect"
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+WARNING Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+INFO HTTP Request: HEAD https://huggingface.co/Qdrant/paraphrase-multilingual-MiniLM-L12-v2-onnx-Q/resolve/faf4aa4225822f3bc6376869cb1164e8e3feedd0/tokenizer_config.json "HTTP/1.1 307 Temporary Redirect"
+INFO HTTP Request: HEAD https://huggingface.co/Qdrant/paraphrase-multilingual-MiniLM-L12-v2-onnx-Q/resolve/faf4aa4225822f3bc6376869cb1164e8e3feedd0/model_optimized.onnx "HTTP/1.1 302 Found"
+INFO HTTP Request: HEAD https://huggingface.co/Qdrant/paraphrase-multilingual-MiniLM-L12-v2-onnx-Q/resolve/faf4aa4225822f3bc6376869cb1164e8e3feedd0/special_tokens_map.json "HTTP/1.1 307 Temporary Redirect"
+INFO HTTP Request: HEAD https://huggingface.co/Qdrant/paraphrase-multilingual-MiniLM-L12-v2-onnx-Q/resolve/faf4aa4225822f3bc6376869cb1164e8e3feedd0/tokenizer.json "HTTP/1.1 302 Found"
+INFO HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/Qdrant/paraphrase-multilingual-MiniLM-L12-v2-onnx-Q/faf4aa4225822f3bc6376869cb1164e8e3feedd0/special_tokens_map.json "HTTP/1.1 200 OK"
+INFO HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/Qdrant/paraphrase-multilingual-MiniLM-L12-v2-onnx-Q/faf4aa4225822f3bc6376869cb1164e8e3feedd0/tokenizer_config.json "HTTP/1.1 200 OK"
+INFO HTTP Request: GET https://huggingface.co/api/resolve-cache/models/Qdrant/paraphrase-multilingual-MiniLM-L12-v2-onnx-Q/faf4aa4225822f3bc6376869cb1164e8e3feedd0/tokenizer_config.json "HTTP/1.1 200 OK"
+INFO HTTP Request: GET https://huggingface.co/api/resolve-cache/models/Qdrant/paraphrase-multilingual-MiniLM-L12-v2-onnx-Q/faf4aa4225822f3bc6376869cb1164e8e3feedd0/special_tokens_map.json "HTTP/1.1 200 OK"
+C:\Users\HP\AppData\Roaming\Python\Python314\site-packages\huggingface_hub\file_download.py:137: UserWarning: `huggingface_hub` cache-system uses symlinks by default to efficiently store duplicated files but your machine does not support them in C:\Users\HP\AppData\Local\Temp\fastembed_cache\models--qdrant--paraphrase-multilingual-MiniLM-L12-v2-onnx-Q. Caching files will still work but in a degraded version that might require more space on your disk. This warning can be disabled by setting the `HF_HUB_DISABLE_SYMLINKS_WARNING` environment variable. For more details, see https://huggingface.co/docs/huggingface_hub/how-to-cache#limitations.
+To support symlinks on Windows, you either need to activate Developer Mode or to run Python as an administrator. In order to activate developer mode, see this article: https://docs.microsoft.com/en-us/windows/apps/get-started/enable-your-device-for-development
+  warnings.warn(message)
+INFO HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/Qdrant/paraphrase-multilingual-MiniLM-L12-v2-onnx-Q/faf4aa4225822f3bc6376869cb1164e8e3feedd0/config.json "HTTP/1.1 200 OK"
+INFO HTTP Request: GET https://huggingface.co/api/resolve-cache/models/Qdrant/paraphrase-multilingual-MiniLM-L12-v2-onnx-Q/faf4aa4225822f3bc6376869cb1164e8e3feedd0/config.json "HTTP/1.1 200 OK"
+
